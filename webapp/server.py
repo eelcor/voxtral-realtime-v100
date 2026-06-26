@@ -48,8 +48,11 @@ SILENCE_B64 = base64.b64encode(bytes(2 * 9600)).decode()
 # Hard: uiterlijk hier rollen, ongeacht spraak (veiligheid vóór de crash).
 ROLLOVER_S = float(os.environ.get("VOXTRAL_ROLLOVER_S", "150"))
 ROLLOVER_HARD_S = float(os.environ.get("VOXTRAL_ROLLOVER_HARD_S", "210"))
-# RMS-drempel (0..32768) waaronder een audioframe als stilte/pauze geldt
-SILENCE_RMS = float(os.environ.get("VOXTRAL_SILENCE_RMS", "350"))
+# Een echte zin-pauze = aanhoudende stilte van minstens zoveel seconden,
+# gemeten t.o.v. een adaptieve ruisvloer (past zich aan de omgeving aan).
+MIN_PAUSE_S = float(os.environ.get("VOXTRAL_MIN_PAUSE_S", "0.6"))
+# Absolute minimum-marge boven de ruisvloer (0..32768) om "stil" te bepalen.
+SILENCE_RMS = float(os.environ.get("VOXTRAL_SILENCE_RMS", "250"))
 
 app = FastAPI(title="Voxtral Realtime")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -183,9 +186,12 @@ async def ws(client: WebSocket):
     up = None
     relay_task = None
     started = False
-    audio_s = 0.0  # seconden audio in de huidige Voxtral-sessie
+    audio_s = 0.0       # seconden audio in de huidige Voxtral-sessie
+    noise_floor = None  # adaptieve ruisvloer (RMS), volgt de stilte-envelope
+    quiet_run = 0.0      # aaneengesloten seconden stilte
+    seg_done = None      # Event: gezet zodra de huidige sessie transcription.done stuurt
 
-    async def relay(conn):
+    async def relay(conn, done_event):
         try:
             async for msg in conn:
                 ev = json.loads(msg)
@@ -194,26 +200,34 @@ async def ws(client: WebSocket):
                     await client.send_json({"type": "delta", "text": ev.get("delta", "")})
                 elif t == "transcription.done":
                     await client.send_json({"type": "segment_done", "text": ev.get("text", "")})
+                    done_event.set()
                 elif t == "error":
                     await client.send_json({"type": "error", "msg": str(ev.get("error", ev))})
         except Exception:
             pass
 
     async def open_session():
-        nonlocal up, relay_task, started, audio_s
+        nonlocal up, relay_task, started, audio_s, seg_done
         up = await websockets.connect(VOXTRAL_WS, max_size=None, ping_interval=None)
         await up.send(json.dumps({"type": "session.update", "model": MODEL}))
         started = False
         audio_s = 0.0
-        relay_task = asyncio.create_task(relay(up))
+        seg_done = asyncio.Event()
+        relay_task = asyncio.create_task(relay(up, seg_done))
 
-    async def finalize_session(wait=0.8):
-        nonlocal up, relay_task, started
+    async def finalize_session(wait_done=2.5):
+        # Sluit de sessie af: flush met stilte, commit final, en WACHT op de
+        # transcription.done zodat de laatste woorden gegarandeerd zijn doorgestuurd.
+        nonlocal up, relay_task, started, seg_done
         if up is not None:
             try:
                 await up.send(json.dumps({"type": "input_audio_buffer.append", "audio": SILENCE_B64}))
                 await up.send(json.dumps({"type": "input_audio_buffer.commit", "final": True}))
-                await asyncio.sleep(wait)  # laat de laatste deltas binnenkomen
+                if wait_done > 0 and seg_done is not None:
+                    try:
+                        await asyncio.wait_for(seg_done.wait(), timeout=wait_done)
+                    except asyncio.TimeoutError:
+                        pass
             except Exception:
                 pass
             try:
@@ -222,6 +236,7 @@ async def ws(client: WebSocket):
                 pass
         up = None
         started = False
+        seg_done = None
         if relay_task:
             relay_task.cancel()
             relay_task = None
@@ -238,7 +253,7 @@ async def ws(client: WebSocket):
             if txt is not None:
                 kind = json.loads(txt).get("type")
                 if kind == "start":
-                    await finalize_session(wait=0)
+                    await finalize_session(wait_done=0)
                     try:
                         await open_session()
                     except Exception as e:
@@ -249,16 +264,26 @@ async def ws(client: WebSocket):
                     await finalize_session()
 
             elif byt is not None and up is not None:
-                # Rollover vóór de contextlimiet: bij voorkeur op een STILTE
-                # (natuurlijke zingrens) zodra de zachte drempel is bereikt;
-                # uiterlijk bij de harde drempel, ongeacht spraak.
+                # Rollover vóór de contextlimiet: bij voorkeur op een ECHTE
+                # zin-pauze (aanhoudende stilte t.o.v. een adaptieve ruisvloer)
+                # zodra de zachte drempel is bereikt; uiterlijk bij de harde grens.
                 try:
                     rms = audioop.rms(byt, 2)
                 except Exception:
                     rms = 9999
-                quiet = rms < SILENCE_RMS
-                if (audio_s >= ROLLOVER_S and quiet) or audio_s >= ROLLOVER_HARD_S:
-                    await finalize_session(wait=0.3)
+                # adaptieve ruisvloer: snel zakken naar lage waarden, traag stijgen
+                if noise_floor is None:
+                    noise_floor = rms
+                elif rms < noise_floor:
+                    noise_floor = 0.9 * noise_floor + 0.1 * rms
+                else:
+                    noise_floor = 0.995 * noise_floor + 0.005 * rms
+                frame_s = len(byt) / 2 / 16000.0
+                quiet = rms < noise_floor * 2.0 + SILENCE_RMS
+                quiet_run = quiet_run + frame_s if quiet else 0.0
+                if (audio_s >= ROLLOVER_S and quiet_run >= MIN_PAUSE_S) or audio_s >= ROLLOVER_HARD_S:
+                    quiet_run = 0.0
+                    await finalize_session()
                     try:
                         await open_session()
                     except Exception as e:
@@ -273,8 +298,8 @@ async def ws(client: WebSocket):
                         started = True
                 except Exception as e:
                     await client.send_json({"type": "error", "msg": f"stream onderbroken: {e}"})
-                    await finalize_session(wait=0)
+                    await finalize_session(wait_done=0)
     except WebSocketDisconnect:
         pass
     finally:
-        await finalize_session(wait=0)
+        await finalize_session(wait_done=0)
