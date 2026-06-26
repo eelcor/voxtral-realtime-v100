@@ -206,7 +206,7 @@ async def ws(client: WebSocket):
         except Exception:
             pass
 
-    async def open_session():
+    async def open_session(prime_silence=False):
         nonlocal up, relay_task, started, audio_s, seg_done
         up = await websockets.connect(VOXTRAL_WS, max_size=None, ping_interval=None)
         await up.send(json.dumps({"type": "session.update", "model": MODEL}))
@@ -214,6 +214,13 @@ async def ws(client: WebSocket):
         audio_s = 0.0
         seg_done = asyncio.Event()
         relay_task = asyncio.create_task(relay(up, seg_done))
+        if prime_silence:
+            # Prime de nieuwe sessie op stilte: het model gebruikt z'n eerste
+            # ~562ms als priming-venster, dus dat moet stilte zijn i.p.v. het
+            # eerste echte woord (anders verdwijnt dat woord op de naad).
+            await up.send(json.dumps({"type": "input_audio_buffer.append", "audio": SILENCE_B64}))
+            await up.send(json.dumps({"type": "input_audio_buffer.commit"}))
+            started = True
 
     async def finalize_session(wait_done=2.5):
         # Sluit de sessie af: flush met stilte, commit final, en WACHT op de
@@ -221,7 +228,10 @@ async def ws(client: WebSocket):
         nonlocal up, relay_task, started, seg_done
         if up is not None:
             try:
-                await up.send(json.dumps({"type": "input_audio_buffer.append", "audio": SILENCE_B64}))
+                # Ruime flush-stilte (zit in de queue als 'final' komt) zodat de
+                # generatie de ~480ms output-delaybuffer leegmaakt = laatste woord.
+                for _ in range(3):
+                    await up.send(json.dumps({"type": "input_audio_buffer.append", "audio": SILENCE_B64}))
                 await up.send(json.dumps({"type": "input_audio_buffer.commit", "final": True}))
                 if wait_done > 0 and seg_done is not None:
                     try:
@@ -285,7 +295,7 @@ async def ws(client: WebSocket):
                     quiet_run = 0.0
                     await finalize_session()
                     try:
-                        await open_session()
+                        await open_session(prime_silence=True)
                     except Exception as e:
                         await client.send_json({"type": "error", "msg": f"rollover faalde: {e}"})
                         continue
