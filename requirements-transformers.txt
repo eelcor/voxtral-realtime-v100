@@ -1,0 +1,17 @@
+# Dependencies voor het transformers-baseline pad (transformers_baseline/).
+# NB: de aanbevolen vLLM-route gebruikt een aparte, V100-gepatchte vLLM-venv
+# (zie README) en heeft deze requirements NIET nodig.
+#
+# Belangrijk op Tesla V100 (Volta, sm_70): installeer torch tegen CUDA 12.x,
+# de default cu130-wheel laat Volta vallen. Bijv.:
+#   pip install "torch==2.6.0" --index-url https://download.pytorch.org/whl/cu124
+
+torch==2.6.0            # via de cu124 index hierboven
+transformers>=5.2.0     # VoxtralRealtimeForConditionalGeneration
+mistral-common[audio]
+accelerate
+numpy
+soundfile
+librosa
+soxr
+datasets                # alleen voor test_offline.py / bench_*.py (referentie-audio)

@@ -1,0 +1,42 @@
+--- a/vllm/model_executor/models/whisper_causal.py
++++ b/vllm/model_executor/models/whisper_causal.py
+@@ -189,7 +189,13 @@
+                 output_block_scale,
+             )
+ 
+-    if not issubclass(underlying_attn_backend, FlashAttentionBackend):
++    # --- V100 patch: sta ook de Triton-based FlashAttnV100Backend toe.
++    # De block-pooling-wrapper is backend-agnostisch zolang de impl
++    # do_kv_cache_update heeft (TritonAttentionImpl heeft die) en de
++    # get_kv_cache_shape-override de juiste layout teruggeeft (zie hieronder). ---
++    from vllm.v1.attention.backends.triton_attn import TritonAttentionBackend
++    _bp_allowed = (FlashAttentionBackend, TritonAttentionBackend)
++    if not issubclass(underlying_attn_backend, _bp_allowed):
+         raise NotImplementedError(
+             f"{underlying_attn_backend} is not yet supported."
+             "Contributions to support more backends are much "
+@@ -202,18 +208,20 @@
+         overrides={
+             "get_builder_cls": lambda: WhisperCausalAttentionWithBlockPoolingBuilder,
+             "get_impl_cls": lambda: WhisperCausalAttentionWithBlockPoolingImpl,
++            # --- V100 patch: delegeer naar de onderliggende backend zodat de
++            # KV-cache-layout klopt voor zowel FA ((2,blocks,..)) als Triton
++            # ((blocks,2,..)). We stretchen block_size en delen num_kv_heads. ---
+             "get_kv_cache_shape": lambda num_blocks,
+             block_size,
+             num_kv_heads,
+             head_size,
+-            cache_dtype_str: (
+-                2,
++            cache_dtype_str="auto": underlying_attn_backend.get_kv_cache_shape(
+                 num_blocks,
+-                # we stretch each block by `block_pool_size`
+                 block_size * block_pool_size,
+                 num_kv_heads // block_pool_size,
+                 head_size,
+-            ),  # TODO: generalize to other backends
++                cache_dtype_str,
++            ),
+             "forward_includes_kv_cache_update": True,
+         },
+     )

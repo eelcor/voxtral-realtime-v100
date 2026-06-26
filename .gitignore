@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# vLLM / torch caches
+.inductor_cache/
+*.log
+
+# Audio test artifacts
+*.wav
+!docs/**/*.wav
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
