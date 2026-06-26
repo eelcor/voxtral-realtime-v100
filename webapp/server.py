@@ -16,6 +16,7 @@ Browser <-> backend protocol (op /ws):
     {"type":"error","msg":"..."}
 """
 import asyncio
+import audioop
 import base64
 import json
 import os
@@ -43,7 +44,12 @@ SILENCE_B64 = base64.b64encode(bytes(2 * 9600)).decode()
 
 # Sessie-rollover: vóór de contextlimiet (max_model_len ~3072 tokens ≈ 245s audio)
 # de Voxtral-sessie naadloos herstarten, zodat lange opnames niet crashen.
-ROLLOVER_S = float(os.environ.get("VOXTRAL_ROLLOVER_S", "180"))
+# Zacht: vanaf hier rollen op de eerstvolgende STILTE (natuurlijke zingrens).
+# Hard: uiterlijk hier rollen, ongeacht spraak (veiligheid vóór de crash).
+ROLLOVER_S = float(os.environ.get("VOXTRAL_ROLLOVER_S", "150"))
+ROLLOVER_HARD_S = float(os.environ.get("VOXTRAL_ROLLOVER_HARD_S", "210"))
+# RMS-drempel (0..32768) waaronder een audioframe als stilte/pauze geldt
+SILENCE_RMS = float(os.environ.get("VOXTRAL_SILENCE_RMS", "350"))
 
 app = FastAPI(title="Voxtral Realtime")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -243,8 +249,15 @@ async def ws(client: WebSocket):
                     await finalize_session()
 
             elif byt is not None and up is not None:
-                # naadloze rollover vóór de contextlimiet
-                if audio_s >= ROLLOVER_S:
+                # Rollover vóór de contextlimiet: bij voorkeur op een STILTE
+                # (natuurlijke zingrens) zodra de zachte drempel is bereikt;
+                # uiterlijk bij de harde drempel, ongeacht spraak.
+                try:
+                    rms = audioop.rms(byt, 2)
+                except Exception:
+                    rms = 9999
+                quiet = rms < SILENCE_RMS
+                if (audio_s >= ROLLOVER_S and quiet) or audio_s >= ROLLOVER_HARD_S:
                     await finalize_session(wait=0.3)
                     try:
                         await open_session()
