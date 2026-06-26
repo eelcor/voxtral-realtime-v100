@@ -87,6 +87,20 @@ $HOME/vllm-v100/bin/python clients/mic_realtime_vllm.py
 
 Language is auto-detected — just talk.
 
+## Web app
+
+A polished browser app (record on/off, live streaming transcription, a voice-band volume
+meter + live waveform, mic picker, copy/download, dark/light theme, and a Web-Audio signal-
+processing chain) lives in [`webapp/`](webapp/). It serves over HTTPS and proxies the browser
+audio to the realtime websocket — the vLLM port is never exposed to the browser.
+
+```bash
+VLLM_VENV=$HOME/vllm-v100 ./serve_voxtral_vllm.sh     # the model server
+VLLM_VENV=$HOME/vllm-v100 ./webapp/run_webapp.sh      # https://<host>:8443
+```
+
+See [webapp/README.md](webapp/README.md) for details and the signal-processing notes.
+
 ## How the realtime API works
 
 The realtime model is served over a **WebSocket** at `ws://<host>:8045/v1/realtime`

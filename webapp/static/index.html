@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="nl" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Voxtral Realtime · Transcriptie</title>
+<style>
+  :root{
+    --accent1:#6366f1; --accent2:#a855f7; --accent3:#ec4899;
+    --rec1:#ef4444; --rec2:#f97316;
+    --bg:#0b0f1a; --bg2:#0e1322; --card:rgba(255,255,255,.045);
+    --border:rgba(255,255,255,.09); --txt:#e8eaf0; --muted:#9aa2b4;
+    --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444;
+    --shadow:0 10px 40px rgba(0,0,0,.4);
+  }
+  html[data-theme="light"]{
+    --bg:#f4f5fa; --bg2:#eceef6; --card:rgba(20,24,40,.04);
+    --border:rgba(20,24,40,.1); --txt:#1a1f33; --muted:#5b6478; --shadow:0 10px 40px rgba(60,70,120,.15);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif;
+    color:var(--txt); min-height:100vh;
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(168,85,247,.18), transparent 60%),
+      radial-gradient(1000px 500px at -10% 110%, rgba(99,102,241,.18), transparent 55%),
+      linear-gradient(160deg,var(--bg),var(--bg2));
+    background-attachment:fixed;
+  }
+  .wrap{max-width:860px; margin:0 auto; padding:22px 18px 60px}
+  header{display:flex; align-items:center; gap:12px; margin-bottom:22px}
+  .logo{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;
+    background:linear-gradient(135deg,var(--accent1),var(--accent2),var(--accent3));
+    box-shadow:0 6px 20px rgba(124,58,237,.4)}
+  .logo svg{width:22px;height:22px}
+  h1{font-size:19px; margin:0; font-weight:700; letter-spacing:.2px}
+  h1 small{display:block; font-size:11.5px; font-weight:500; color:var(--muted); letter-spacing:.3px}
+  .spacer{flex:1}
+  .pill{display:inline-flex; align-items:center; gap:7px; font-size:12.5px; font-weight:600;
+    padding:7px 12px; border-radius:999px; background:var(--card); border:1px solid var(--border)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);transition:.3s}
+  .dot.ok{background:var(--ok); box-shadow:0 0 10px var(--ok)}
+  .dot.bad{background:var(--bad); box-shadow:0 0 10px var(--bad)}
+  .dot.warn{background:var(--warn); box-shadow:0 0 10px var(--warn)}
+  .iconbtn{background:var(--card); border:1px solid var(--border); color:var(--txt);
+    width:38px;height:38px;border-radius:11px;cursor:pointer;display:grid;place-items:center;transition:.2s}
+  .iconbtn:hover{background:rgba(255,255,255,.1)}
+
+  .card{background:var(--card); border:1px solid var(--border); border-radius:20px;
+    box-shadow:var(--shadow); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px)}
+
+  .stage{padding:26px 22px 22px; display:flex; flex-direction:column; align-items:center; gap:14px; margin-bottom:18px}
+  canvas#viz{width:100%; height:96px; display:block}
+
+  .recwrap{position:relative; width:148px; height:148px; display:grid; place-items:center; margin-top:4px}
+  .glow{position:absolute; inset:0; border-radius:50%;
+    background:radial-gradient(closest-side, rgba(236,72,153,.55), transparent 70%);
+    transform:scale(calc(.55 + var(--vol,0)*.9)); opacity:calc(.25 + var(--vol,0)*.75);
+    transition:transform .08s linear, opacity .08s linear; pointer-events:none}
+  .recbtn{position:relative; width:108px; height:108px; border-radius:50%; border:none; cursor:pointer;
+    background:linear-gradient(135deg,var(--accent1),var(--accent2),var(--accent3));
+    box-shadow:0 10px 30px rgba(124,58,237,.45); display:grid; place-items:center; transition:.25s; color:#fff}
+  .recbtn:hover{transform:translateY(-2px); box-shadow:0 16px 40px rgba(124,58,237,.55)}
+  .recbtn:active{transform:translateY(0)}
+  .recbtn svg{width:42px;height:42px}
+  body.recording .recbtn{background:linear-gradient(135deg,var(--rec1),var(--rec2));
+    animation:pulse 1.6s ease-out infinite; box-shadow:0 10px 30px rgba(239,68,68,.5)}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(239,68,68,.5)}70%{box-shadow:0 0 0 22px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}
+
+  .status{font-size:13.5px; color:var(--muted); font-weight:600; height:18px; text-align:center}
+  .timer{font-variant-numeric:tabular-nums; font-size:30px; font-weight:700; letter-spacing:1px;
+    display:flex; align-items:center; gap:10px}
+  .timer .recdot{width:11px;height:11px;border-radius:50%;background:var(--rec1);opacity:0;transition:.2s}
+  body.recording .timer .recdot{opacity:1; animation:blink 1s steps(2,start) infinite}
+  @keyframes blink{50%{opacity:.25}}
+  .levelbar{width:200px;height:6px;border-radius:6px;background:var(--border);overflow:hidden}
+  .levelbar i{display:block;height:100%;width:calc(var(--vol,0)*100%);
+    background:linear-gradient(90deg,var(--accent1),var(--accent3));transition:width .08s linear}
+  .audiofx{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;
+    padding:7px 12px;border-radius:999px;border:1px solid var(--border);background:var(--card);
+    color:var(--muted);cursor:pointer;transition:.2s}
+  .chip svg{width:14px;height:14px}
+  .chip:hover{color:var(--txt)}
+  .chip.on{color:#fff;border-color:transparent;
+    background:linear-gradient(135deg,var(--accent1),var(--accent2))}
+  .clipled{font-size:10.5px;font-weight:800;letter-spacing:1px;padding:4px 8px;border-radius:6px;
+    color:var(--muted);background:var(--card);border:1px solid var(--border);opacity:.4;transition:.1s}
+  .clipled.hot{color:#fff;background:var(--bad);border-color:transparent;opacity:1;box-shadow:0 0 12px var(--bad)}
+
+  .tcard{padding:0; overflow:hidden; margin-bottom:14px}
+  .thead{display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid var(--border)}
+  .thead h2{font-size:14px;margin:0;font-weight:700}
+  .counts{font-size:12px;color:var(--muted);font-weight:600}
+  .transcript{padding:18px; min-height:200px; max-height:46vh; overflow-y:auto; font-size:16.5px; line-height:1.7;
+    white-space:pre-wrap; word-break:break-word}
+  .transcript:empty::before{content:attr(data-placeholder); color:var(--muted)}
+  .transcript .live{color:var(--accent2); opacity:.95}
+  html[data-theme="light"] .transcript .live{color:var(--accent1)}
+
+  .toolbar{display:flex; flex-wrap:wrap; gap:10px; align-items:center}
+  .btn{display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:600;
+    padding:10px 14px; border-radius:12px; border:1px solid var(--border); background:var(--card);
+    color:var(--txt); cursor:pointer; transition:.2s}
+  .btn:hover{background:rgba(255,255,255,.1)}
+  .btn:disabled{opacity:.4; cursor:not-allowed}
+  .btn svg{width:16px;height:16px}
+  select{font-size:13px;font-weight:600;padding:10px 12px;border-radius:12px;border:1px solid var(--border);
+    background:var(--card);color:var(--txt);cursor:pointer;max-width:240px}
+  .grow{flex:1}
+  .hint{font-size:12px;color:var(--muted);text-align:center;margin-top:18px;line-height:1.6}
+  kbd{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:1px 6px;font-size:11px}
+
+  .toasts{position:fixed; left:50%; bottom:26px; transform:translateX(-50%);
+    display:flex; flex-direction:column; gap:8px; z-index:50}
+  .toast{background:rgba(20,24,40,.92); color:#fff; border:1px solid var(--border); padding:11px 16px;
+    border-radius:12px; font-size:13px; font-weight:600; box-shadow:var(--shadow);
+    animation:slidein .25s ease; backdrop-filter:blur(8px)}
+  .toast.err{border-color:rgba(239,68,68,.5)}
+  @keyframes slidein{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
+  @media(max-width:560px){ .timer{font-size:26px} .recwrap{width:132px;height:132px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round">
+        <path d="M3 12h2l2-6 3 14 3-18 3 14 2-4h3"/>
+      </svg>
+    </div>
+    <div>
+      <h1>Voxtral Realtime<small>Spraak naar tekst · live</small></h1>
+    </div>
+    <div class="spacer"></div>
+    <span class="pill"><span id="statusDot" class="dot"></span><span id="statusText">verbinden…</span></span>
+    <button id="themeBtn" class="iconbtn" title="Thema wisselen" aria-label="Thema">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>
+    </button>
+  </header>
+
+  <section class="card stage">
+    <canvas id="viz"></canvas>
+    <div class="recwrap">
+      <div class="glow" id="glow"></div>
+      <button id="recBtn" class="recbtn" title="Opnemen (spatie)">
+        <svg id="micIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>
+        </svg>
+        <svg id="stopIcon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="6" width="12" height="12" rx="3"/></svg>
+      </button>
+    </div>
+    <div class="timer"><span class="recdot"></span><span id="timer">00:00</span></div>
+    <div class="levelbar"><i></i></div>
+    <div class="audiofx">
+      <button id="fxEnhance" class="chip on" title="Hoogdoorlaat + kerfilter + compressie">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12h3l2-7 3 14 2-9 2 4h4"/></svg>Ruisfilter</button>
+      <button id="fxGate" class="chip" title="Stuurt stilte tijdens pauzes (VAD)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Stiltepoort</button>
+      <span id="clipLed" class="clipled" title="Oversturing (te luid)">clip</span>
+    </div>
+    <div class="status" id="statusLine">Klaar om op te nemen</div>
+  </section>
+
+  <section class="card tcard">
+    <div class="thead">
+      <h2>Transcriptie</h2>
+      <div class="spacer" style="flex:1"></div>
+      <span class="counts" id="counts">0 woorden · 0 tekens</span>
+    </div>
+    <div id="transcript" class="transcript" data-placeholder="Druk op de microfoon en begin te praten — de tekst verschijnt hier live…"></div>
+  </section>
+
+  <div class="toolbar">
+    <select id="micSelect" title="Microfoon"></select>
+    <div class="grow"></div>
+    <button id="copyBtn" class="btn" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Kopiëren</button>
+    <button id="dlBtn" class="btn" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>Download</button>
+    <button id="clearBtn" class="btn" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14"/></svg>Wissen</button>
+  </div>
+
+  <p class="hint">Tip: <kbd>spatie</kbd> start/stopt de opname · Nederlands en 12 andere talen worden automatisch herkend.<br>
+  Audio gaat lokaal naar je eigen Voxtral-server — niets verlaat je netwerk.</p>
+</div>
+<div class="toasts" id="toasts"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
