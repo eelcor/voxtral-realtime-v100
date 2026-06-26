@@ -26,19 +26,31 @@ overhead in the eager transformers loop. vLLM's CUDA graphs remove exactly that.
 
 ## Requirements
 
-- **Tesla V100** (or another Volta sm_70 GPU), ~16 GB.
-- A **vLLM build that provides a Volta attention backend** (`FlashAttnV100Backend`,
-  Triton-based, registered under `--attention-backend FLASH_ATTN_V100`). The realtime
-  patch in this repo relaxes the audio-encoder to use that backend. Stock upstream vLLM
-  does not ship a Volta backend; you need a build that adds one.
-- PyTorch built against **CUDA 12.x** (the default cu13x wheels drop Volta). The vLLM venv
-  above already satisfies this.
-- The model weights: `mistralai/Voxtral-Mini-4B-Realtime-2602` (auto-downloaded on first run).
+- **A Tesla V100** (Volta, sm_70), 16 GB or 32 GB. One card is enough — the model is 4B
+  and fits in ~10 GB. More V100s let you run more concurrent instances; they are **not**
+  required, and tensor-parallel with this patch is untested.
+- **The 1Cat-vLLM Volta fork** — [github.com/1CatAI/1Cat-vLLM](https://github.com/1CatAI/1Cat-vLLM).
+  This is the hard prerequisite: it's a public V100/sm_70 vLLM fork that ships the
+  Triton-based `FlashAttnV100Backend` (`--attention-backend FLASH_ATTN_V100`) and is built
+  against CUDA 12.8 (stock vLLM has no Volta backend, and default cu13x wheels drop Volta).
+  Install its prebuilt wheels into a Python 3.12 venv, e.g.:
+  ```bash
+  python3.12 -m venv ~/vllm-v100 && source ~/vllm-v100/bin/activate
+  pip install --prefer-binary --extra-index-url https://download.pytorch.org/whl/cu128 \
+    https://github.com/1CatAI/1Cat-vLLM/releases/download/v1.0.0/vllm-1.0.0-cp312-cp312-linux_x86_64.whl
+  ```
+  This repo's patch was developed against **1Cat-vLLM v1.0.0 (vLLM 1.0.0)**; on other
+  versions the diff context may need a tweak.
+- **The model weights**: `mistralai/Voxtral-Mini-4B-Realtime-2602` (auto-downloaded on first run).
+
+> Tested on a 16 GB V100 with the defaults below. On a 32 GB V100 you can raise
+> `--max-model-len` and `--max-num-seqs` substantially.
 
 ## Quick start
 
 ```bash
-# 0) Apply the patch to your V100 vLLM venv (idempotent; backs up the original).
+# 0) Install 1Cat-vLLM into ~/vllm-v100 (see Requirements), then apply the patch
+#    (idempotent; backs up the original whisper_causal.py).
 VLLM_VENV=$HOME/vllm-v100 ./patches/apply_patch.sh
 
 # 1) Start the server (single V100, port 8045). Wait for "Application startup complete."
@@ -131,4 +143,7 @@ reference and to reproduce the diagnosis (`bench_rtf.py`). They need their own v
   by Mistral AI (Apache-2.0).
 - Serving: [vLLM](https://github.com/vllm-project/vllm) (Apache-2.0). The patch is a
   derivative of vLLM source.
+- V100/Volta support: the [1CatAI/1Cat-vLLM](https://github.com/1CatAI/1Cat-vLLM) fork,
+  which provides the `FlashAttnV100Backend` this work builds on. Huge thanks — without it
+  none of this runs on Volta.
 - This repo is released under the **Apache-2.0** license (see `LICENSE`).
