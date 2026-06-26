@@ -20,15 +20,28 @@ echo "vLLM-package : $PKG_DIR"
 echo "doelbestand  : $TARGET"
 
 [ -f "$TARGET" ] || { echo "FOUT: $TARGET niet gevonden"; exit 1; }
-[ -f "$TARGET.orig" ] || cp "$TARGET" "$TARGET.orig"
 
-# idempotent: detecteer of de patch al is toegepast
-if grep -q "TritonAttentionBackend" "$TARGET" && grep -q "_bp_allowed" "$TARGET"; then
-    echo "Patch lijkt al toegepast; sla over."
+# Detecteer of de fix er al is:
+#  - upstream (v1.2.1+): de gate gebruikt _SUPPORTED_BACKENDS, of
+#  - get_kv_cache_shape delegeert al naar de onderliggende backend, of
+#  - deze patch is al toegepast (_bp_allowed-marker).
+if grep -q "_SUPPORTED_BACKENDS" "$TARGET" \
+   || grep -q "_bp_allowed" "$TARGET" \
+   || grep -q "underlying_attn_backend.get_kv_cache_shape" "$TARGET"; then
+    echo "De fix is al aanwezig (upstream v1.2.1+ of eerder gepatcht) — geen patch nodig."
 else
-    # patch toepassen vanuit de site-packages root (paden in de diff zijn vllm/...)
-    ( cd "$PKG_DIR/.." && patch -p1 < "$PATCH" )
-    echo "Patch toegepast (backup op $TARGET.orig)."
+    [ -f "$TARGET.orig" ] || cp "$TARGET" "$TARGET.orig"
+    # eerst droog draaien zodat een versie-mismatch niet half patcht
+    if ( cd "$PKG_DIR/.." && patch -p1 --dry-run < "$PATCH" ) >/dev/null 2>&1; then
+        ( cd "$PKG_DIR/.." && patch -p1 < "$PATCH" )
+        echo "Patch toegepast (backup op $TARGET.orig)."
+    else
+        echo "WAARSCHUWING: de patch past niet schoon op deze vLLM-versie."
+        echo "  - Op v1.2.1+ is de fix al upstream en is de patch niet nodig."
+        echo "  - Op een andere versie: poort de twee wijzigingen handmatig"
+        echo "    (zie README, sectie 'The patch')."
+        exit 1
+    fi
 fi
 
 echo "Audio-dependency installeren ..."

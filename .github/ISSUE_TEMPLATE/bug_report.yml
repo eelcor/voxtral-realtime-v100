@@ -1,0 +1,59 @@
+name: Bug report
+description: Something doesn't work when serving Voxtral realtime on a V100.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! Please skim the **Troubleshooting** section of the README
+        first — it covers the common cases (OOM / KV cache, the `FlashAttnV100Backend`
+        error, the HTTP-vs-WebSocket assertion, no mic audio, port clashes).
+  - type: input
+    id: vllm-version
+    attributes:
+      label: 1Cat-vLLM version
+      description: "Output of: <venv>/bin/python -c 'import vllm; print(vllm.__version__)'"
+      placeholder: "1.2.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: gpu
+    attributes:
+      label: GPU
+      options:
+        - Tesla V100 16 GB
+        - Tesla V100 32 GB
+        - Other Volta (sm_70)
+        - Other (please describe below)
+    validations:
+      required: true
+  - type: input
+    id: gpu-count
+    attributes:
+      label: Number of GPUs used
+      placeholder: "1"
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you run, what did you expect, what did you get?
+      placeholder: |
+        Command: VLLM_VENV=~/vllm-v100 ./serve_voxtral_vllm.sh
+        Expected: "Application startup complete."
+        Got: ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Server log around the error (and the client output, if any). Will be formatted as code.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I'm on 1Cat-vLLM v1.2.1+ OR I applied patches/apply_patch.sh
+        - label: I'm using the WebSocket /v1/realtime endpoint (not HTTP /v1/audio/transcriptions)
+        - label: I checked the README Troubleshooting section

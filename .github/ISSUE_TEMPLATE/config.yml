@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Troubleshooting (README)
+    url: https://github.com/eelcor/voxtral-realtime-v100#troubleshooting
+    about: Common OOM / KV-cache, attention-backend, WebSocket-vs-HTTP, and mic-audio fixes.
+  - name: 1Cat-vLLM (the V100 vLLM fork)
+    url: https://github.com/1CatAI/1Cat-vLLM
+    about: Issues with the Volta vLLM build itself (install, wheels, FlashAttnV100Backend) belong here.

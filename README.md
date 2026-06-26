@@ -7,10 +7,15 @@ Run **Mistral's `Voxtral-Mini-4B-Realtime-2602`** streaming speech-to-text on a 
 > real time), first-token latency ~0.1–0.3 s, accurate punctuated output, Dutch and 12
 > other languages, on one 16 GB V100.
 
-The realtime model does **not** run on a V100 out of the box: its audio encoder uses a
-block-pooling attention that hard-requires Ampere+ FlashAttention. This repo contains a
-small two-line vLLM patch that makes it work on Volta, plus ready-to-use server and client
-scripts (including a live microphone demo).
+The realtime model's audio encoder uses a block-pooling attention that originally
+hard-required Ampere+ FlashAttention, so it would not start on a V100. This repo provides
+ready-to-use server and client scripts (including a live microphone demo) plus the
+benchmarks behind the numbers above.
+
+> **Good news on the prerequisite:** that encoder limitation has since been fixed
+> **upstream**. With **1Cat-vLLM v1.2.1+** the realtime model runs on Volta out of the box —
+> **no patch needed**. The two-line patch in `patches/` is only for older builds
+> (1Cat-vLLM ≤ v1.1.0). See [Compatibility](#compatibility).
 
 ## Why this is non-trivial
 
@@ -18,11 +23,24 @@ scripts (including a live microphone demo).
 |---|---|
 | 🤗 transformers (`VoxtralRealtimeForConditionalGeneration`) | Works, **but RTF ≈ 1.18** — falls ~20 % behind, lag accumulates |
 | `torch.compile` on the transformers model | Fails (`NameError` from Inductor codegen on this custom model) |
-| vLLM, unpatched | Engine fails to start: `NotImplementedError: FlashAttnV100Backend is not yet supported` |
-| **vLLM + this patch** | ✅ **RTF ≈ 0.41** — keeps up real time with headroom |
+| vLLM ≤ v1.1.0, unpatched | Engine fails to start: `NotImplementedError: FlashAttnV100Backend is not yet supported` |
+| vLLM ≤ v1.1.0 **+ this patch** | ✅ **RTF ≈ 0.41** — keeps up real time with headroom |
+| **vLLM v1.2.1+** (fix is upstream) | ✅ **RTF ≈ 0.41**, no patch needed |
 
 The bottleneck was never raw FLOPs — a V100 has plenty for a 4B model. It was kernel-launch
 overhead in the eager transformers loop. vLLM's CUDA graphs remove exactly that.
+
+## Compatibility
+
+| 1Cat-vLLM version | Realtime Voxtral on V100 | What to do |
+|---|---|---|
+| **v1.2.1+** (recommended) | ✅ works out of the box | install, **skip the patch** |
+| v1.0.0 / v1.1.0 | ❌ encoder fails to start | apply `patches/whisper_causal_v100.patch` |
+
+The upstream fix (in `vllm/model_executor/models/whisper_causal.py`) is equivalent to this
+repo's patch: it widens the attention-backend gate to accept the Triton-based V100 backend
+and delegates `get_kv_cache_shape` to the underlying backend. `patches/apply_patch.sh`
+auto-detects an already-fixed install and skips, so it is safe to run on any version.
 
 ## Requirements
 
@@ -33,14 +51,15 @@ overhead in the eager transformers loop. vLLM's CUDA graphs remove exactly that.
   This is the hard prerequisite: it's a public V100/sm_70 vLLM fork that ships the
   Triton-based `FlashAttnV100Backend` (`--attention-backend FLASH_ATTN_V100`) and is built
   against CUDA 12.8 (stock vLLM has no Volta backend, and default cu13x wheels drop Volta).
-  Install its prebuilt wheels into a Python 3.12 venv, e.g.:
+  **Use v1.2.1 or newer** (the realtime encoder fix is included). Install the prebuilt
+  wheel into a Python 3.12 venv, e.g.:
   ```bash
   python3.12 -m venv ~/vllm-v100 && source ~/vllm-v100/bin/activate
   pip install --prefer-binary --extra-index-url https://download.pytorch.org/whl/cu128 \
-    https://github.com/1CatAI/1Cat-vLLM/releases/download/v1.0.0/vllm-1.0.0-cp312-cp312-linux_x86_64.whl
+    https://github.com/1CatAI/1Cat-vLLM/releases/download/v1.2.1/1cat_vllm-1.2.1-cp312-cp312-linux_x86_64.whl
   ```
-  This repo's patch was developed against **1Cat-vLLM v1.0.0 (vLLM 1.0.0)**; on other
-  versions the diff context may need a tweak.
+  Validated end-to-end on **v1.0.0 + this repo's patch** (RTF 0.41). v1.2.1 contains an
+  equivalent fix upstream; the same scripts apply.
 - **The model weights**: `mistralai/Voxtral-Mini-4B-Realtime-2602` (auto-downloaded on first run).
 
 > Tested on a 16 GB V100 with the defaults below. On a 32 GB V100 you can raise
@@ -49,8 +68,9 @@ overhead in the eager transformers loop. vLLM's CUDA graphs remove exactly that.
 ## Quick start
 
 ```bash
-# 0) Install 1Cat-vLLM into ~/vllm-v100 (see Requirements), then apply the patch
-#    (idempotent; backs up the original whisper_causal.py).
+# 0) Install 1Cat-vLLM v1.2.1+ into ~/vllm-v100 (see Requirements).
+#    On v1.2.1+ no patch is needed. On v1.0.0/v1.1.0, run the applier (it auto-detects
+#    an already-fixed install and skips; it also installs the audio dependency):
 VLLM_VENV=$HOME/vllm-v100 ./patches/apply_patch.sh
 
 # 1) Start the server (single V100, port 8045). Wait for "Application startup complete."
@@ -91,7 +111,10 @@ See `clients/test_realtime_ws.py` for a complete, minimal client.
 plus 2400 ms) via `num_delay_tokens` in the model's `tekken.json`. Default 6 tokens ≈ 480 ms,
 which matches offline accuracy. Lower = snappier, slightly less accurate.
 
-## The patch
+## The patch (only for 1Cat-vLLM ≤ v1.1.0)
+
+> Not needed on v1.2.1+, where an equivalent fix is already upstream. Kept here for older
+> builds and as documentation of what the fix does.
 
 `patches/whisper_causal_v100.patch` changes two things in
 `vllm/model_executor/models/whisper_causal.py`:
@@ -117,8 +140,8 @@ changes are required.
 ```
 serve_voxtral_vllm.sh             vLLM launch script (single V100, port 8045)
 patches/
-  whisper_causal_v100.patch       the two-line fix (unified diff)
-  apply_patch.sh                  idempotent applier + audio deps
+  whisper_causal_v100.patch       the two-line fix (unified diff; only for <= v1.1.0)
+  apply_patch.sh                  applier: detects already-fixed installs, adds audio deps
 clients/
   mic_realtime_vllm.py            live microphone -> websocket (the main demo)
   test_realtime_ws.py             WAV file -> websocket, prints transcript + RTF
@@ -129,6 +152,38 @@ transformers_baseline/            reference path (works but lags) + benchmarks
   bench_compile.py                torch.compile experiment (documents why it fails)
 requirements-transformers.txt     deps for the transformers_baseline scripts only
 ```
+
+## Troubleshooting
+
+**`CUDA out of memory` during startup / KV-cache too small** (`estimated maximum model
+length is N`). The block-pooling KV cache is expensive (~0.7 MB/token). On a 16 GB V100,
+lower the context and keep one slot:
+```bash
+VLLM_MAX_CTX=4096 VLLM_MAX_SEQS=1 VLLM_GPU_MEM_UTIL=0.92 ./serve_voxtral_vllm.sh
+```
+If it OOMs *during profiling* (the audio encoder on dummy audio), also lower
+`VLLM_MAX_BATCHED`. On a 32 GB V100 you can raise all of these.
+
+**`NotImplementedError: FlashAttnV100Backend is not yet supported`** — you're on
+1Cat-vLLM ≤ v1.1.0 without the patch. Run `patches/apply_patch.sh`, or upgrade to v1.2.1+.
+
+**`AssertionError: For realtime you must provide a multimodal_embedding at every step`** —
+you hit the HTTP `/v1/audio/transcriptions` endpoint. The realtime model only works over
+the **WebSocket** `/v1/realtime`; use the clients in `clients/`.
+
+**No transcription appears from the mic.** Audio probably isn't reaching the capture source.
+Check the input level first (no model needed):
+```bash
+python transformers_baseline/transcribe_live.py --meter
+```
+If the bar never moves, fix the source: list PipeWire sources with `wpctl status` and pass
+`--source <node.name>`, or use `--backend arecord --source <alsa-device>`.
+
+**`Address already in use` / port clash.** Change the port: `VLLM_PORT=8046 ./serve_voxtral_vllm.sh`
+(and `VOXTRAL_WS_URL=ws://localhost:8046/v1/realtime` for the clients).
+
+**`patch: ... FAILED` when applying.** Your vLLM version differs from v1.0.0. If it's
+v1.2.1+, you don't need the patch at all (the applier detects this and skips).
 
 ## Transformers baseline (reference / why vLLM)
 
@@ -145,5 +200,6 @@ reference and to reproduce the diagnosis (`bench_rtf.py`). They need their own v
   derivative of vLLM source.
 - V100/Volta support: the [1CatAI/1Cat-vLLM](https://github.com/1CatAI/1Cat-vLLM) fork,
   which provides the `FlashAttnV100Backend` this work builds on. Huge thanks — without it
-  none of this runs on Volta.
+  none of this runs on Volta. As of **v1.2.1** it also includes the realtime-encoder fix
+  upstream, so the patch here is only needed for older builds.
 - This repo is released under the **Apache-2.0** license (see `LICENSE`).
