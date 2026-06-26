@@ -64,6 +64,7 @@ function renderTranscript(){
   const words = full ? full.split(/\s+/).length : 0;
   countsEl.textContent = `${words} woorden · ${full.length} tekens`;
   copyBtn.disabled = dlBtn.disabled = clearBtn.disabled = !full.length;
+  scheduleProcess(full);
 }
 
 /* ---------- mics ---------- */
@@ -224,12 +225,106 @@ $('themeBtn').addEventListener('click', () => {
 micSelect.addEventListener('change', () => { if(recording){ stop(); setTimeout(start,200); } });
 window.addEventListener('resize', () => { if(!recording) drawIdle(); else fitCanvas(); });
 
+/* ---------- AI-verwerking (samenvatting / formulier) ---------- */
+const summaryView=$('summaryView'), formView=$('formView'), summaryOut=$('summaryOut'), formOut=$('formOut');
+const aiSpin=$('aiSpin'), llmDot=$('llmDot'), formTemplate=$('formTemplate'), customFields=$('customFields');
+let aiMode='summary', procTimer=null, processing=false, pending=false, lastProc='';
+
+const TEMPLATES = {
+  meeting:[{name:'Onderwerp',description:'het hoofdonderwerp'},{name:'Aanwezigen',description:'genoemde namen/deelnemers'},{name:'Besluiten',description:'genomen besluiten'},{name:'Actiepunten',description:'wie doet wat'},{name:'Deadlines',description:'genoemde data/termijnen'}],
+  intake:[{name:'Naam',description:'naam van de persoon'},{name:'Klacht',description:'hoofdklacht of reden'},{name:'Sinds wanneer',description:'duur/begin van de klacht'},{name:'Medicatie',description:'genoemde medicijnen'},{name:'Allergieën',description:'genoemde allergieën'}],
+  ticket:[{name:'Klant',description:'naam/bedrijf van de klant'},{name:'Probleem',description:'beschrijving van het probleem'},{name:'Urgentie',description:'laag, midden of hoog'},{name:'Stappen',description:'reproductiestappen'},{name:'Gewenst',description:'gewenste oplossing'}],
+  contact:[{name:'Naam',description:'volledige naam'},{name:'Bedrijf',description:'organisatie'},{name:'E-mail',description:'e-mailadres'},{name:'Telefoon',description:'telefoonnummer'},{name:'Notitie',description:'overige info'}],
+};
+let formFields = TEMPLATES.meeting;
+
+async function checkLLM(){
+  try{ const r = await fetch('/llm/health'); llmDot.className = 'dot ' + (r.ok ? 'ok' : 'bad'); }
+  catch{ llmDot.className = 'dot bad'; }
+}
+function buildFields(){
+  formFields = formTemplate.value==='custom'
+    ? customFields.value.split(',').map(s=>s.trim()).filter(Boolean).map(n=>({name:n,description:''}))
+    : (TEMPLATES[formTemplate.value] || []);
+  renderFormSkeleton();
+}
+function renderFormSkeleton(){
+  formOut.innerHTML='';
+  formFields.forEach(f => {
+    const row=document.createElement('div'); row.className='frow'; row.dataset.name=f.name;
+    const nm=document.createElement('div'); nm.className='fname'; nm.textContent=f.name;
+    const vl=document.createElement('div'); vl.className='fval';
+    row.appendChild(nm); row.appendChild(vl); formOut.appendChild(row);
+  });
+}
+function valToStr(v){
+  if(v==null) return '';
+  if(Array.isArray(v)) return v.map(valToStr).filter(Boolean).join(', ');
+  if(typeof v==='object') return Object.values(v).map(valToStr).filter(Boolean).join(', ');
+  return String(v);
+}
+function renderForm(obj){
+  formFields.forEach(f => {
+    const row=formOut.querySelector(`.frow[data-name="${CSS.escape(f.name)}"]`); if(!row) return;
+    const vl=row.querySelector('.fval');
+    const nv=valToStr(obj && obj[f.name]);
+    if(nv!==vl.textContent){ vl.textContent=nv; if(nv){ row.classList.add('flash'); setTimeout(()=>row.classList.remove('flash'),800); } }
+  });
+}
+function renderSummary(t){ summaryOut.textContent=(t||'').trim(); }
+function setMode(m){
+  aiMode=m;
+  $('modeSummary').classList.toggle('on', m==='summary');
+  $('modeForm').classList.toggle('on', m==='form');
+  summaryView.style.display = m==='summary' ? '' : 'none';
+  formView.style.display = m==='form' ? '' : 'none';
+  lastProc=''; runProcess(true);
+}
+let maxTimer=null;
+function fireProcess(){ if(procTimer)clearTimeout(procTimer); if(maxTimer)clearTimeout(maxTimer); procTimer=null; maxTimer=null; runProcess(false); }
+function scheduleProcess(){
+  // debounce 1,2s na de laatste delta, maar gegarandeerd elke ~3,5s (ook tijdens doorpraten)
+  if(procTimer) clearTimeout(procTimer);
+  procTimer = setTimeout(fireProcess, 1200);
+  if(!maxTimer) maxTimer = setTimeout(fireProcess, 3500);
+}
+async function streamSummary(transcript){
+  const r=await fetch('/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transcript})});
+  if(!r.body) return;
+  const reader=r.body.getReader(), dec=new TextDecoder(); let acc='';
+  while(true){ const {done,value}=await reader.read(); if(done) break; acc+=dec.decode(value,{stream:true}); renderSummary(acc); }
+}
+async function runProcess(force){
+  const transcript=(committed+' '+live).trim();
+  if(!transcript){ if(aiMode==='summary') renderSummary(''); return; }
+  if(!force && transcript===lastProc) return;
+  if(processing){ pending=true; return; }
+  processing=true; pending=false; aiSpin.classList.add('on');
+  try{
+    if(aiMode==='form'){
+      const r=await fetch('/process',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'form',transcript,fields:formFields})});
+      const d=await r.json(); if(!d.error) renderForm(d.result);
+    } else {
+      await streamSummary(transcript);
+    }
+    lastProc=transcript;
+  }catch{}
+  processing=false; aiSpin.classList.remove('on');
+  if(pending) runProcess(false);
+}
+$('modeSummary').addEventListener('click',()=>setMode('summary'));
+$('modeForm').addEventListener('click',()=>setMode('form'));
+formTemplate.addEventListener('change',()=>{ customFields.style.display=formTemplate.value==='custom'?'':'none'; buildFields(); lastProc=''; runProcess(true); });
+customFields.addEventListener('change',()=>{ buildFields(); lastProc=''; runProcess(true); });
+buildFields();
+
 /* ---------- init ---------- */
 (async function init(){
   const savedTheme = localStorage.getItem('voxtral-theme');
   if(savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
   fitCanvas(); drawIdle(); renderTranscript();
   connectWS(); await checkHealth(); setInterval(checkHealth, 8000);
+  checkLLM(); setInterval(checkLLM, 8000);
   await listMics();
   navigator.mediaDevices.addEventListener?.('devicechange', listMics);
 })();

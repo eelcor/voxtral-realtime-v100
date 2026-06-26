@@ -118,7 +118,26 @@
     animation:slidein .25s ease; backdrop-filter:blur(8px)}
   .toast.err{border-color:rgba(239,68,68,.5)}
   @keyframes slidein{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
-  @media(max-width:560px){ .timer{font-size:26px} .recwrap{width:132px;height:132px} }
+  .modetabs{display:flex;gap:4px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:3px}
+  .tab{font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:8px;border:none;background:transparent;color:var(--muted);cursor:pointer;transition:.2s}
+  .tab.on{background:linear-gradient(135deg,var(--accent1),var(--accent2));color:#fff}
+  .llmpill{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:var(--muted)}
+  .ipanel{padding:18px}
+  .summaryout{min-height:80px;font-size:15.5px;line-height:1.7;white-space:pre-wrap}
+  .summaryout:empty::before{content:attr(data-placeholder);color:var(--muted)}
+  .formbar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  .formbar input{flex:1;min-width:180px;font-size:13px;padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--txt)}
+  .formout{display:flex;flex-direction:column;gap:1px}
+  .frow{display:flex;gap:14px;padding:11px 12px;border-radius:10px;align-items:flex-start;transition:background .5s}
+  .frow:nth-child(odd){background:rgba(255,255,255,.025)}
+  .frow.flash{background:rgba(168,85,247,.20)}
+  .fname{font-size:12.5px;font-weight:700;color:var(--muted);min-width:140px;padding-top:1px}
+  .fval{font-size:14.5px;flex:1;min-height:20px;word-break:break-word}
+  .fval:empty::before{content:'—';color:var(--muted);opacity:.5}
+  .spin{display:none;width:13px;height:13px;border:2px solid var(--border);border-top-color:var(--accent2);border-radius:50%;animation:spin .7s linear infinite}
+  .spin.on{display:inline-block}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media(max-width:560px){ .timer{font-size:26px} .recwrap{width:132px;height:132px} .fname{min-width:100px} }
 </style>
 </head>
 <body>
@@ -169,6 +188,35 @@
       <span class="counts" id="counts">0 woorden · 0 tekens</span>
     </div>
     <div id="transcript" class="transcript" data-placeholder="Druk op de microfoon en begin te praten — de tekst verschijnt hier live…"></div>
+  </section>
+
+  <section class="card tcard">
+    <div class="thead">
+      <h2>AI-verwerking</h2>
+      <span class="spin" id="aiSpin"></span>
+      <span class="llmpill"><span id="llmDot" class="dot"></span><span id="llmText">Gemma 4</span></span>
+      <div class="spacer" style="flex:1"></div>
+      <div class="modetabs">
+        <button id="modeSummary" class="tab on">Samenvatting</button>
+        <button id="modeForm" class="tab">Formulier</button>
+      </div>
+    </div>
+    <div id="summaryView" class="ipanel">
+      <div id="summaryOut" class="summaryout" data-placeholder="Praat — de samenvatting groeit live mee terwijl je spreekt…"></div>
+    </div>
+    <div id="formView" class="ipanel" style="display:none">
+      <div class="formbar">
+        <select id="formTemplate">
+          <option value="meeting">Vergadernotulen</option>
+          <option value="intake">Intake-gesprek</option>
+          <option value="ticket">Support-ticket</option>
+          <option value="contact">Contactgegevens</option>
+          <option value="custom">Eigen velden…</option>
+        </select>
+        <input id="customFields" placeholder="bv. naam, bedrijf, e-mail, telefoon" style="display:none">
+      </div>
+      <div id="formOut" class="formout"></div>
+    </div>
   </section>
 
   <div class="toolbar">
