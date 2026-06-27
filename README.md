@@ -138,6 +138,34 @@ python3.12 -m venv ~/whisper-bench
 ~/whisper-bench/bin/python bench/bench.py --audio my_recording.wav   # side-by-side, no WER
 ```
 
+## Latency vs. accuracy: tuning the streaming delay
+
+Voxtral-realtime emits each token with a fixed **delay** (default `num_delay_tokens = 6`
+≈ 480 ms): it commits text for audio that is 6 frames in the past, so it always has that
+much *future* audio as context before deciding. That delay is the latency/accuracy dial.
+
+Scaling it up (via `transcription_delay_ms` — see [`bench/delay_patch/`](bench/delay_patch/))
+and re-measuring WER on the same 50 FLEURS-nl clips:
+
+![WER vs. streaming delay](bench/delay_vs_wer.png)
+
+| Delay | Latency | WER ↓ |
+|---|---|---|
+| 6 tokens (default) | 480 ms | 8.7 % |
+| 9 tokens | 720 ms | 8.0 % |
+| 12 tokens | 960 ms | **7.3 %** |
+| 15 tokens | 1200 ms | 7.4 % |
+
+More lookahead buys real accuracy: WER falls steadily and at **12 tokens (~960 ms)** the
+streaming model (7.3 %) closes most of the gap to *offline* Whisper large-v3 (6.7 % on these
+clips) — then flattens (15 tokens gives nothing more). The model tolerates the larger delay
+cleanly even though it was trained at 6, so this is effectively a free inference-time knob:
+**~double the latency for ~1.4 points of WER**, with diminishing returns past ~960 ms.
+
+Mistral's default of 6 is a deliberate sub-500 ms operating point. If your use case can spend
+a second of latency (dictation, meeting notes, captions that lag a beat), raising the delay is
+worth it; for snappy back-and-forth, keep it low. Reproduce → [`bench/run_delay_sweep.sh`](bench/).
+
 ## How the realtime API works
 
 The realtime model is served over a **WebSocket** at `ws://<host>:8045/v1/realtime`
@@ -207,6 +235,10 @@ bench/                            Whisper-vs-Voxtral Dutch WER benchmark
   voxtral_file.py                 transcribe any WAV via the realtime websocket
   results_largev3.*               example results (80 clips)
   requirements-bench.txt          deps (separate venv; CTranslate2, no torch)
+  run_delay_sweep.sh              latency/accuracy sweep (6/9/12/15 delay tokens)
+  delay_patch/sitecustomize.py    scales transcription_delay_ms at server start
+  prep_clips.py / sweep_voxtral.py / plot_delay.py   sweep harness + chart
+  delay_vs_wer.png                the WER-vs-latency chart
 ```
 
 ## Troubleshooting

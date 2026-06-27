@@ -74,3 +74,20 @@ Standalone helper: transcribe any audio file through the realtime WebSocket.
 It burst-feeds the file, appends trailing silence, and reads until the output
 drains (using a plain `commit`, not `final`) so the last word — which otherwise
 sits in the model's ~480 ms output-delay buffer — is not clipped.
+
+## Latency vs. accuracy sweep
+
+`run_delay_sweep.sh` measures WER at 6/9/12/15 streaming-delay tokens and plots it
+(see the chart + table in the repo README). It works by scaling the model's
+`transcription_delay_ms` at server start via `delay_patch/sitecustomize.py`
+(auto-imported through `PYTHONPATH`, controlled by `$VOXTRAL_DELAY_SCALE`).
+
+```bash
+~/whisper-bench/bin/python bench/prep_clips.py --n 50 --gpu 0   # clips + Whisper baseline (once)
+bash bench/run_delay_sweep.sh                                   # stops/restarts the server per delay
+~/whisper-bench/bin/python bench/plot_delay.py                  # -> bench/delay_vs_wer.png
+```
+
+> The sweep **restarts the Voxtral server** for each delay (it reuses the single
+> V100 slot), so live transcription on that server pauses while it runs. It restores
+> the default-delay server (detached, port 8045) at the end.

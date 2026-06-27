@@ -1,0 +1,7 @@
+{
+  "num_delay_tokens": 9,
+  "delay_ms": 720.0,
+  "wer_voxtral": 0.08031774051191527,
+  "clips": 50,
+  "audio_seconds": 484.6
+}
