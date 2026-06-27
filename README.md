@@ -109,12 +109,14 @@ speech), as Word Error Rate against [faster-whisper](https://github.com/SYSTRAN/
 | Model | WER ↓ | |
 |---|---|---|
 | Whisper large-v3 | **6.2 %** | offline, full context, 1.5 B |
+| Whisper large-v2 | 7.8 % | offline, full context, 1.5 B |
 | **Voxtral-realtime** | **9.0 %** | **streaming**, limited right-context, 4 B |
 | Whisper medium | 12.6 % | offline, full context, 769 M |
 
-The realtime model lands **between Whisper-medium and large-v3** — it beats offline medium
-outright and trails the much-loved large-v3 by only ~3 points, while doing the strictly harder
-*streaming* job (committing text before the sentence has finished).
+The realtime model lands **between Whisper large-v2 and medium** — it beats offline medium
+comfortably and trails large-v2/large-v3 by a few points, while doing the strictly harder
+*streaming* job (committing text before the sentence has finished). And as the latency section
+below shows, a little more delay lets it **overtake offline large-v2** outright.
 
 Where it loses ground is mostly the **first word or two** of an utterance (its ~562 ms priming
 window) and rare proper nouns / compounds:
@@ -156,11 +158,14 @@ and re-measuring WER on the same 50 FLEURS-nl clips:
 | 12 tokens | 960 ms | **7.3 %** |
 | 15 tokens | 1200 ms | 7.4 % |
 
-More lookahead buys real accuracy: WER falls steadily and at **12 tokens (~960 ms)** the
-streaming model (7.3 %) closes most of the gap to *offline* Whisper large-v3 (6.7 % on these
-clips) — then flattens (15 tokens gives nothing more). The model tolerates the larger delay
-cleanly even though it was trained at 6, so this is effectively a free inference-time knob:
-**~double the latency for ~1.4 points of WER**, with diminishing returns past ~960 ms.
+(Whisper baselines on the same 50 clips: large-v3 6.7 %, large-v2 8.5 %.)
+
+More lookahead buys real accuracy: WER falls steadily and at **9 tokens (~720 ms) the streaming
+model already overtakes offline Whisper large-v2** (8.5 %); by **12 tokens (~960 ms)** it reaches
+7.3 %, closing most of the remaining gap to large-v3 — then flattens (15 tokens gives nothing
+more). The model tolerates the larger delay cleanly even though it was trained at 6, so this is
+effectively a free inference-time knob: **~double the latency for ~1.4 points of WER**, with
+diminishing returns past ~960 ms.
 
 Mistral's default of 6 is a deliberate sub-500 ms operating point. If your use case can spend
 a second of latency (dictation, meeting notes, captions that lag a beat), raising the delay is
@@ -238,7 +243,8 @@ bench/                            Whisper-vs-Voxtral Dutch WER benchmark
   run_delay_sweep.sh              latency/accuracy sweep (6/9/12/15 delay tokens)
   delay_patch/sitecustomize.py    scales transcription_delay_ms at server start
   prep_clips.py / sweep_voxtral.py / plot_delay.py   sweep harness + chart
-  delay_vs_wer.png                the WER-vs-latency chart
+  whisper_eval.py                 score any Whisper model (extra baseline lines)
+  delay_vs_wer.png                the WER-vs-latency chart (v3 + v2 baselines)
 ```
 
 ## Troubleshooting

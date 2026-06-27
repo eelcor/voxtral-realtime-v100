@@ -1,0 +1,5 @@
+{
+  "whisper_model": "large-v2",
+  "whisper_wer": 0.08473080317740513,
+  "clips": 50
+}

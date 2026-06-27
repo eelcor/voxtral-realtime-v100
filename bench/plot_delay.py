@@ -22,15 +22,22 @@ ms = [p[1] for p in pts]
 wv = [p[2] for p in pts]
 
 meta = json.load(open(META))
-whisper_wer = 100 * meta["whisper_wer"]
-whisper_model = meta["whisper_model"]
 n = len(meta["clips"])
+
+# Whisper-baselines: v3 uit meta + extra whisper_<model>.json bestanden
+baselines = {meta["whisper_model"]: 100 * meta["whisper_wer"]}
+for f in glob.glob(os.path.join(os.path.dirname(META), "whisper_*.json")):
+    d = json.load(open(f))
+    baselines[d["whisper_model"]] = 100 * d["whisper_wer"]
+all_wer = wv + list(baselines.values())
 
 plt.rcParams.update({"font.size": 12, "axes.edgecolor": "#888"})
 fig, ax = plt.subplots(figsize=(8, 5))
 
-ax.axhline(whisper_wer, ls="--", lw=1.6, color="#6b7280",
-           label=f"Whisper {whisper_model} (offline): {whisper_wer:.1f}%")
+bl_colors = {"large-v3": "#374151", "large-v2": "#9ca3af", "medium": "#cbd5e1"}
+for name, w in sorted(baselines.items(), key=lambda kv: kv[1]):
+    ax.axhline(w, ls="--", lw=1.6, color=bl_colors.get(name, "#6b7280"),
+               label=f"Whisper {name} (offline): {w:.1f}%")
 ax.plot(toks, wv, "-o", lw=2.4, ms=9, color="#a855f7", label="Voxtral-realtime (streaming)")
 for t, m, w in pts:
     ax.annotate(f"{w:.1f}%", (t, w), textcoords="offset points", xytext=(0, 11),
@@ -50,10 +57,8 @@ sec = ax.secondary_xaxis("top", functions=(lambda x: x * 80.0, lambda x: x / 80.
 sec.set_xlabel("≈ latency (ms)")
 ax.grid(True, axis="y", alpha=0.3)
 ax.legend(loc="best", frameon=False)
-lo = min(min(wv), whisper_wer) - 1.0
-hi = max(max(wv), whisper_wer) + 2.0
-ax.set_ylim(max(0, lo), hi)
+ax.set_ylim(max(0, min(all_wer) - 1.0), max(all_wer) + 2.0)
 fig.tight_layout()
 fig.savefig(OUT, dpi=150)
 print("geschreven:", OUT)
-print("punten:", pts, "| whisper:", round(whisper_wer, 1))
+print("punten:", pts, "| baselines:", {k: round(v, 1) for k, v in baselines.items()})

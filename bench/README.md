@@ -83,10 +83,15 @@ sits in the model's ~480 ms output-delay buffer — is not clipped.
 (auto-imported through `PYTHONPATH`, controlled by `$VOXTRAL_DELAY_SCALE`).
 
 ```bash
-~/whisper-bench/bin/python bench/prep_clips.py --n 50 --gpu 0   # clips + Whisper baseline (once)
+~/whisper-bench/bin/python bench/prep_clips.py --n 50 --gpu 0   # clips + large-v3 baseline (once)
+~/whisper-bench/bin/python bench/whisper_eval.py --model large-v2 --dir /tmp/sweep_clips  # extra baseline line
 bash bench/run_delay_sweep.sh                                   # stops/restarts the server per delay
 ~/whisper-bench/bin/python bench/plot_delay.py                  # -> bench/delay_vs_wer.png
 ```
+
+`plot_delay.py` draws a dashed line for every `whisper_*.json` baseline in the clips dir, so add
+as many Whisper models as you like with `whisper_eval.py`. On 50 clips the curve crosses **below
+offline large-v2 (8.5 %)** by 9 delay tokens.
 
 > The sweep **restarts the Voxtral server** for each delay (it reuses the single
 > V100 slot), so live transcription on that server pauses while it runs. It restores
