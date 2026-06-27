@@ -245,6 +245,8 @@ bench/                            Whisper-vs-Voxtral Dutch WER benchmark
   prep_clips.py / sweep_voxtral.py / plot_delay.py   sweep harness + chart
   whisper_eval.py                 score any Whisper model (extra baseline lines)
   delay_vs_wer.png                the WER-vs-latency chart (v3 + v2 baselines)
+  realtest.py                     clip an m4a/mp3/wav -> Voxtral vs Whisper side-by-side
+  gemma_correct.py                glossary post-correction (substitution-only)
 ```
 
 ## Troubleshooting

@@ -63,6 +63,35 @@ where the two models disagree most).
   dominated by per-clip overhead. For true streaming throughput see the repo's RTF
   notes (~0.4 on a single V100).
 
+## Real-life test + the two error-fixing levers
+
+`realtest.py` clips a window out of any recording (m4a/mp3/wav — decoded via PyAV, no
+ffmpeg needed) and shows Voxtral vs. Whisper side-by-side, no reference:
+
+```bash
+~/whisper-bench/bin/python bench/realtest.py recording.m4a --start 60 --dur 60
+```
+
+On real Dutch meeting audio the two error classes need *different* fixes, and they're
+complementary:
+
+- **Streaming disfluencies** (stutters, premature commits like `AI in AI` → `AI`) are fixed
+  by **more delay** (see the latency section in the main README).
+- **Lexical/knowledge errors** (rare words, jargon, proper-noun spelling like
+  `bouwzels` → `bouwsels`, `signalen` → `Signalen`) are fixed by a **Gemma post-correction**
+  with a glossary — `gemma_correct.py`:
+
+```bash
+~/whisper-bench/bin/python bench/gemma_correct.py --wav clip.wav \
+    --glossary "Gemeente Leiden, Signalen, ..." --mode substitution
+```
+
+`--mode substitution` (default) enforces *substitution-only*: Gemma's output is aligned to the
+raw transcript word-by-word and only `replace` edits are kept — inserts are dropped and nothing
+is deleted, so the pass can never add or remove words (only fix wrong ones). `--mode free` lets
+Gemma rewrite freely. Combined, **delay≈12 tokens + a light substitution-only correction** gets
+the streaming transcript close to offline Whisper while keeping names/jargon correct.
+
 ## `voxtral_file.py`
 
 Standalone helper: transcribe any audio file through the realtime WebSocket.
@@ -74,6 +103,9 @@ Standalone helper: transcribe any audio file through the realtime WebSocket.
 It burst-feeds the file, appends trailing silence, and reads until the output
 drains (using a plain `commit`, not `final`) so the last word — which otherwise
 sits in the model's ~480 ms output-delay buffer — is not clipped.
+
+`realtest.py` (m4a/side-by-side) and `gemma_correct.py` (glossary post-correction)
+build on it; see "Real-life test" above.
 
 ## Latency vs. accuracy sweep
 
