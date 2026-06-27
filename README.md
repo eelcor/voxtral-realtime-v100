@@ -101,6 +101,43 @@ VLLM_VENV=$HOME/vllm-v100 ./webapp/run_webapp.sh      # https://<host>:8443
 
 See [webapp/README.md](webapp/README.md) for details and the signal-processing notes.
 
+## Benchmark: how good is it? (Dutch WER)
+
+On 80 Dutch [FLEURS](https://huggingface.co/datasets/google/fleurs) clips (~13 min of read
+speech), as Word Error Rate against [faster-whisper](https://github.com/SYSTRAN/faster-whisper):
+
+| Model | WER ↓ | |
+|---|---|---|
+| Whisper large-v3 | **6.2 %** | offline, full context, 1.5 B |
+| **Voxtral-realtime** | **9.0 %** | **streaming**, limited right-context, 4 B |
+| Whisper medium | 12.6 % | offline, full context, 769 M |
+
+The realtime model lands **between Whisper-medium and large-v3** — it beats offline medium
+outright and trails the much-loved large-v3 by only ~3 points, while doing the strictly harder
+*streaming* job (committing text before the sentence has finished).
+
+Where it loses ground is mostly the **first word or two** of an utterance (its ~562 ms priming
+window) and rare proper nouns / compounds:
+
+```
+ref:     er wordt met name gesteld dat niemand een leugen kan herkennen ...
+whisper: Er wordt met name gesteld dat niemand een leugen kan herkennen ...
+voxtral: Ruft mijn naam gesteld dat niemand een leugen kan herkennen ...   ← botched onset
+```
+
+Caveats: FLEURS is clean read speech (real conversation is harder for both); WER is inflated by
+formatting — digits, casing, compound splits — not just real errors; and Whisper here is *offline*
+while Voxtral is *streaming*, so this compares "what you get live from Voxtral" against a strong
+offline reference, not the same task. Full notes, more examples, and your-own-audio mode in
+[`bench/`](bench/):
+
+```bash
+python3.12 -m venv ~/whisper-bench
+~/whisper-bench/bin/pip install -r bench/requirements-bench.txt
+~/whisper-bench/bin/python bench/bench.py --n 80 --whisper-model large-v3 --gpu 0
+~/whisper-bench/bin/python bench/bench.py --audio my_recording.wav   # side-by-side, no WER
+```
+
 ## How the realtime API works
 
 The realtime model is served over a **WebSocket** at `ws://<host>:8045/v1/realtime`
@@ -165,6 +202,11 @@ transformers_baseline/            reference path (works but lags) + benchmarks
   bench_rtf.py                    measure real-time factor (shows the ~1.18 lag)
   bench_compile.py                torch.compile experiment (documents why it fails)
 requirements-transformers.txt     deps for the transformers_baseline scripts only
+bench/                            Whisper-vs-Voxtral Dutch WER benchmark
+  bench.py                        FLEURS-nl WER (faster-whisper vs realtime Voxtral)
+  voxtral_file.py                 transcribe any WAV via the realtime websocket
+  results_largev3.*               example results (80 clips)
+  requirements-bench.txt          deps (separate venv; CTranslate2, no torch)
 ```
 
 ## Troubleshooting

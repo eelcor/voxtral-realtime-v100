@@ -1,0 +1,16 @@
+# Deps for the Whisper-vs-Voxtral benchmark (bench/bench.py).
+# Install into a SEPARATE venv — faster-whisper uses CTranslate2, not torch,
+# so it stays clean of the vLLM install:
+#
+#   python3.12 -m venv ~/whisper-bench
+#   ~/whisper-bench/bin/pip install -r bench/requirements-bench.txt
+#
+faster-whisper        # CTranslate2 Whisper (GPU on V100 via float16, or CPU int8)
+jiwer                 # Word Error Rate
+datasets              # pulls FLEURS-nl test clips (audio decoded with soundfile, no torchcodec)
+soundfile
+librosa
+websockets
+# CUDA libs for faster-whisper on GPU (skip if running --device cpu):
+nvidia-cublas-cu12
+nvidia-cudnn-cu12
